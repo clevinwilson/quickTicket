@@ -7,12 +7,50 @@ k8s_yaml([
     if f.endswith('.yaml') or f.endswith('.yml')
 ])
 
-# image, context, deployment, host port
+# ---------------------------------------------------------------------------
+# Environment variables
+#
+# The image never contains a .env - it is in .dockerignore on purpose, so one
+# image can run in any environment. The pod gets its environment from a
+# ConfigMap instead, and in local dev that ConfigMap is generated from
+# auth/.env, which stays the single source of truth.
+#
+# Two resources, because a ConfigMap change alone does NOT reach a running
+# container: env vars are read once, when the container starts. The second
+# resource is what makes `edit .env -> pod has the new value` work.
+# ---------------------------------------------------------------------------
+
+# image, context, deployment, host port, env file
 SERVICES = [
-    ('clevinmw/auth', 'auth', 'auth-deployment', 3000),
+    ('clevinmw/auth', 'auth', 'auth-deployment', 3000, 'auth/.env'),
 ]
 
-for (image, context, deployment, host_port) in SERVICES:
+for (_image, _context, deployment, _port, env_file) in SERVICES:
+    config_name = deployment.replace('-deployment', '') + '-env'
+
+    # 1. Turn the .env file into a ConfigMap. --dry-run=client just prints the
+    #    YAML, which is piped into apply, so this both creates and updates it.
+    local_resource(
+        config_name,
+        cmd='kubectl create configmap %s --from-env-file=%s --dry-run=client -o yaml | kubectl apply -f -'
+        % (config_name, env_file),
+        deps=[env_file],
+        labels=['config'],
+    )
+
+    # 2. Restart the pod so it picks the new values up. auto_init=False keeps
+    #    this from firing on `tilt up` (the pod is already starting with the
+    #    current config); it then runs on every later edit of the .env file.
+    local_resource(
+        config_name + '-reload',
+        cmd='kubectl rollout restart deployment/%s' % deployment,
+        deps=[env_file],
+        resource_deps=[deployment],
+        auto_init=False,
+        labels=['config'],
+    )
+
+for (image, context, deployment, host_port, env_file) in SERVICES:
     docker_build(
         image,
         context,
@@ -30,4 +68,7 @@ for (image, context, deployment, host_port) in SERVICES:
         deployment,
         port_forwards='%d:3000' % host_port,
         labels=['services'],
+        # The ConfigMap has to exist before the pod starts, or the container
+        # comes up with no MONGO_URI and crashes on boot.
+        resource_deps=[deployment.replace('-deployment', '') + '-env'],
     )

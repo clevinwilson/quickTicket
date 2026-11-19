@@ -15,6 +15,18 @@ spec:
       containers:
         - name: auth
           image: clevinmw/auth
+          # The pod's environment comes from here, never from a .env baked into
+          # the image. `auth-env` is generated from auth/.env by the Tiltfile in
+          # local dev, and would be applied by CI (or sealed-secrets) in
+          # production - the Deployment itself stays environment-agnostic.
+          #
+          # envFrom loads every key in the ConfigMap as an env var. Use `env:`
+          # with a `valueFrom` instead when you need to rename a key or pick
+          # just one. Anything secret belongs in a Secret, not a ConfigMap:
+          # ConfigMap values are stored and displayed in plain text.
+          envFrom:
+            - configMapRef:
+                name: auth-env
 
 ---
 apiVersion: v1
