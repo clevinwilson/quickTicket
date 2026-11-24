@@ -1,11 +1,14 @@
 import { Schema, model, type InferSchemaType, type HydratedDocument } from 'mongoose';
 import bcrypt from 'bcrypt';
+import jwt from 'jsonwebtoken';
 
 // Properties required to create a new user
 interface UserAttrs {
     email: string;
     password: string;
 }
+
+
 
 const userSchema = new Schema(
     {
@@ -29,6 +32,25 @@ const userSchema = new Schema(
                 return new this(attrs);
             },
         },
+        methods: {
+            async isPasswordCorrect(password: string): Promise<boolean> {
+                return bcrypt.compare(password, this.password);
+            },
+            generateAccessToken() {
+                const secret = process.env.ACCESS_TOKEN_SECRET;
+                if (!secret) {
+                    throw new Error('ACCESS_TOKEN_SECRET is not configured');
+                }
+
+                return jwt.sign(
+                    {
+                        id: this._id,
+                        email: this.email,
+                    },
+                    secret,
+                );
+            },
+        },
         toJSON: {
             // Shape the JSON returned to clients: hide password and Mongo internals
             transform(_doc, ret: Record<string, any>) {
@@ -48,10 +70,6 @@ userSchema.pre("save", async function () {
     }
     this.password = await bcrypt.hash(this.password, 10);
 })
-
-userSchema.methods.isPasswordCorrect = async function(password: string):  Promise<boolean>{
-    return await bcrypt.compare(password, this.password);
-}
 
 // Types inferred from the schema (single source of truth)
 export type IUser = InferSchemaType<typeof userSchema>;

@@ -1,8 +1,23 @@
+import type { Types } from "mongoose";
 import { User } from "../models/users.model.ts";
 import { ApiError } from "../utils/api-error.ts";
 import { ApiResponse } from "../utils/api-response.ts";
 import { asyncHandler } from "../utils/async-handler.ts"
 
+const generateAccessToken = async (userId: Types.ObjectId) => {
+    const user = await User.findById(userId);
+
+    if (!user) {
+        throw new ApiError(404, "User not found");
+    }
+
+    try {
+        const accessToken = user.generateAccessToken();
+        return { accessToken };
+    } catch (error) {
+        throw new ApiError(500, "Something went wrong while generating access token");
+    }
+}
 
 const signup = asyncHandler(async (req, res) => {
     const { email, password } = req.body;
@@ -28,6 +43,11 @@ const signup = asyncHandler(async (req, res) => {
         throw new ApiError(500, "Something wet wrong while creating user")
     }
 
+    const { accessToken } = await generateAccessToken(createdUser._id);
+
+    req.session = {
+        jwt: accessToken
+    };
     return res.status(201).json(new ApiResponse(200, { user: createdUser }, "User registered successfull"))
 })
 
