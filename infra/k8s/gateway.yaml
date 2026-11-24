@@ -18,11 +18,33 @@ metadata:
   name: quickticket-gateway # referenced by every HTTPRoute via parentRefs
 spec:
   gatewayClassName: envoy-gateway # binds this Gateway to the GatewayClass above
+  infrastructure:
+    parametersRef: # how Envoy Gateway should deploy the proxy for this Gateway (see EnvoyProxy below)
+      group: gateway.envoyproxy.io
+      kind: EnvoyProxy
+      name: quickticket-proxy
   listeners:
     - name: http # name of this listener, referenced by sectionName in a route if needed
       hostname: quickticket.test # .test is IANA-reserved and NOT HSTS-preloaded (.dev forces HTTPS in browsers)
       protocol: HTTP # plain HTTP for local dev; swap to HTTPS + certificateRefs for production TLS
-      port: 80 # Envoy Gateway provisions a LoadBalancer Service on this port (Docker Desktop maps it to localhost)
+      port: 80 # reached locally through the Tilt port-forward localhost:80 -> envoy-quickticket svc
       allowedRoutes:
         namespaces:
           from: Same # only HTTPRoutes in this same namespace may attach - the secure default
+---
+# Local-dev proxy settings. Docker Desktop's kind-based cluster has no
+# LoadBalancer support (EXTERNAL-IP stays <pending> and the Gateway never
+# becomes Programmed), so the proxy Service is a ClusterIP with a FIXED name
+# that the Tiltfile can port-forward to. In production, drop the type/name
+# overrides and let the cloud provision a real LoadBalancer.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyProxy
+metadata:
+  name: quickticket-proxy # referenced by the Gateway's infrastructure.parametersRef
+spec:
+  provider:
+    type: Kubernetes
+    kubernetes:
+      envoyService:
+        name: envoy-quickticket # stable name (default is envoy-<ns>-<gateway>-<hash>)
+        type: ClusterIP

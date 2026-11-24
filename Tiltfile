@@ -72,3 +72,18 @@ for (image, context, deployment, host_port, env_file) in SERVICES:
         # comes up with no MONGO_URI and crashes on boot.
         resource_deps=[deployment.replace('-deployment', '') + '-env'],
     )
+
+# ---------------------------------------------------------------------------
+# Gateway: http://quickticket.test -> localhost:80 -> Envoy proxy
+#
+# Docker Desktop's kind-based cluster can't provision LoadBalancer Services,
+# so the Envoy proxy Service is a ClusterIP (see EnvoyProxy in gateway.yaml)
+# and is reached through this port-forward while Tilt is running.
+# Requires: Envoy Gateway installed (see gateway.yaml) and a hosts entry
+#   127.0.0.1  quickticket.test
+# ---------------------------------------------------------------------------
+local_resource(
+    'gateway-port-forward',
+    serve_cmd='kubectl port-forward -n envoy-gateway-system svc/envoy-quickticket 80:80',
+    labels=['gateway'],
+)
